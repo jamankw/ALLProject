@@ -1,0 +1,427 @@
+---
+title: "Class Project 702"
+author: "Tibui Ivan Ade and Jeffrey Amankwah" 
+date: "2023-03-08"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+ We are using ALL data 
+ Goal 
+ - Use supervised machine learning to predict if a patient would be MDR based on the features in the ALL dataset 
+ - Determine which features account for MDR 
+ 
+ Exploratory Data Analysis
+ - Frequency of MDR 
+ - Analysis of MDR vs Other features (Age,sex, BT (Stages), remission, CR )
+ - Using these features create a model which can predict MDR.
+ - Determing feature importance from teh model (Determine the risk factor associted with MDR)
+ 
+ Title : Using Supervised ML methods to predict MDR in ALL patients
+ 
+ Chapter Wise 
+ 1. Literature of ALL and the DATA (ALL)
+ 2. Methods used 
+ 3. EDA
+ - Distribution mdr in our Data ( Bar Chart)
+ - Other phenotycal distribution  (Mdr - Sex, mdr -Age,mdr-BT, mdr -transplant)
+ - Genes 
+ 4. Modelling 
+ Anova, Genefilter, 
+ 5. Explanation of results 
+ 
+ 
+
+```{r}
+library(ALL)
+data(ALL)
+ALL
+```
+
+```{r}
+?ExpressionSet
+?ALL
+```
+Preposing Set 
+- Set MDR (multi-drug resitance) as target 
+** Determine the distributrion of MDR (how pos and neg)
+** 
+
+
+test - 
+using ANOVA to select the best genes to predict with 
+## ANOVA
+```{r}
+
+ALLmdr <- ALL[,ALL$mdr %in% c("NEG", "POS")]
+anova.pValue <- apply(exprs(ALLmdr), 1, function(x) anova(lm(x ~ ALLmdr$mdr))$Pr[1])
+names <- featureNames(ALL)[anova.pValue<0.001] # getting features - Using ANOVA for dimensionality reduction with a cutoff p value - 0.001 - We list this genes 
+names
+
+```
+
+##Generating ANOVA DATA Set
+```{r}
+ALLmdrnames <- ALLmdr[names, ]
+mdr_data=as.data.frame(t(exprs(ALLmdrnames)))
+#mdr <- factor(ALLmdrnames$mdr)
+mdr_data$mdr=ALLmdr$mdr
+mdr_data
+```
+## T_test 
+```{r}
+ALLmdr <- ALL[,ALL$mdr %in% c("NEG", "POS")]
+ttest.pValue <- apply(exprs(ALLmdr), 1, function(x) t.test(x ~ ALLmdr$mdr)$p.value)
+names_t <- featureNames(ALL)[ttest.pValue<0.001] # getting features - Using ANOVA for dimensionality reduction with a cutoff p value - 0.001 - We list this genes 
+names_t
+ALLmdrnames_t <- ALLmdr[names_t, ]
+mdr_data_t=as.data.frame(t(exprs(ALLmdrnames_t)))
+#mdr <- factor(ALLmdrnames$mdr)
+mdr_data_t$mdr=ALLmdr$mdr
+mdr_data_t
+```
+
+
+
+
+
+
+##Deviding Data to Test and Train 
+```{r}
+
+# set the seed for reproducibility
+set.seed(123)
+#install.packages("caret")
+library(caret)
+# create a 70% train and 30% test split
+#trainIndex <- createDataPartition(mdr_data$mdr, p = 0.7, list = FALSE)
+#train <- mdr_data[trainIndex, ]
+#test <- mdr_data[-trainIndex, ]
+
+```
+
+Run a collection of classification models and determine which model is best perfomant on r. Models should include random forest, svm, gradient boosted tree and more 
+
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(randomForest)
+library(e1071)
+library(xgboost)
+library(lattice)
+library(rpart)
+library(nnet)
+
+# Function to train models and compare performance
+train_and_compare_models <- function(data, target) {
+  # Split the data into training and testing sets
+  set.seed(45)
+  index <- createDataPartition(data[[target]], p = 0.7, list = FALSE)
+  train_set <- data[index,]
+  test_set <- data[-index,]
+  
+  # Train the random forest model
+  set.seed(42)
+  rf_model <- train(train_set[, -which(colnames(train_set) == target)], train_set[[target]], method = "rf")
+  
+  # Train the support vector machine model
+  set.seed(42)
+  svm_model <- train(train_set[, -which(colnames(train_set) == target)], train_set[[target]], method = "svmRadial")
+
+  # Define the tuning grid for the gradient-boosted tree model
+  gbm_tune_grid <- expand.grid(
+    nrounds = 100,
+    max_depth = 6,
+    eta = 0.3,
+    gamma = 0,
+    colsample_bytree = 1,
+    min_child_weight = 1,
+    subsample = 1
+  )
+
+  # Train the gradient-boosted tree model
+  set.seed(42)
+  gbm_model <- train(
+    train_set[, -which(colnames(train_set) == target)],
+    train_set[[target]],
+    method = "xgbTree",
+    tuneGrid = gbm_tune_grid
+  )
+
+  # Train the recursive partitioning model
+  set.seed(42)
+  rp_model <- train(train_set[, -which(colnames(train_set) == target)], train_set[[target]], method = "rpart")
+
+  # Train the logistic regression model
+  set.seed(42)
+  glm_model <- train(train_set[, -which(colnames(train_set) == target)], train_set[[target]], method = "glm", family = "binomial")
+
+  # Train the neural network model
+  set.seed(42)
+  nn_model <- train(train_set[, -which(colnames(train_set) == target)], train_set[[target]], method = "nnet", trace = FALSE)
+  
+  # Test the models
+  rf_preds <- predict(rf_model, test_set[, -which(colnames(test_set) == target)])
+  svm_preds <- predict(svm_model, test_set[, -which(colnames(test_set) == target)])
+  gbm_preds <- predict(gbm_model, test_set[, -which(colnames(test_set) == target)])
+  rp_preds <- predict(rp_model, test_set[, -which(colnames(test_set) == target)])
+  glm_preds <- predict(glm_model, test_set[, -which(colnames(test_set) == target)])
+  nn_preds <- predict(nn_model, test_set[, -which(colnames(test_set) == target)])
+  
+  # Calculate confusion matrices
+  rf_cm <- confusionMatrix(rf_preds, test_set[[target]])
+  svm_cm <- confusionMatrix(svm_preds, test_set[[target]])
+  gbm_cm <- confusionMatrix(gbm_preds, test_set[[target]])
+  rp_cm <- confusionMatrix(rp_preds, test_set[[target]])
+  glm_cm <- confusionMatrix(glm_preds, test_set[[target]])
+  nn_cm <- confusionMatrix(nn_preds, test_set[[target]])
+  
+ 
+# Calculate model accuracies
+  model_accuracies <- data.frame(
+    Model = c("Random Forest", "SVM", "Gradient Boosting", "Recursive Partitioning", "Logistic Regression", "Neural Network"),
+    Accuracy = c(rf_cm$overall["Accuracy"], svm_cm$overall["Accuracy"], gbm_cm$overall["Accuracy"],
+                 rp_cm$overall["Accuracy"], glm_cm$overall["Accuracy"], nn_cm$overall["Accuracy"])
+  )
+
+comparison_plot <- bwplot(Accuracy ~ Model, data = model_accuracies,
+                          scales = list(x = list(rot = 45, cex = 0.8, tck = 1)))
+
+
+
+
+# Add the title using the update function from lattice package
+comparison_plot <- update(comparison_plot, main = "Model Performance Comparison")
+  return(list(rf_cm = rf_cm, svm_cm = svm_cm, gbm_cm = gbm_cm, rp_cm = rp_cm, glm_cm = glm_cm, nn_cm = nn_cm, comparison_plot = comparison_plot))
+}
+
+# Function to compute average variable importance across models
+average_var_importance <- function(models) {
+  var_importances <- lapply(models, varImp)
+  variable_names <- rownames(var_importances[[1]])
+  avg_importance <- Reduce('+', lapply(var_importances, as.data.frame)) / length(var_importances)
+  rownames(avg_importance) <- variable_names
+  return(avg_importance)
+}
+
+
+
+```
+
+
+## Testing ANOVA data with model to predict MDR
+
+```{r}
+# Run the function with your data
+# Replace "mdr_data" with your dataframe and "mdr" with your target variable
+results <- train_and_compare_models(mdr_data, "mdr")
+
+# Display the confusion matrices
+cat("Random Forest Confusion Matrix:\n")
+print(results$rf_cm)
+cat("\nSupport Vector Machine Confusion Matrix:\n")
+print(results$svm_cm)
+cat("\nGradient Boosted Tree Confusion Matrix:\n")
+print(results$gbm_cm)
+cat("\nRecursive Partitioning Confusion Matrix:\n")
+print(results$rp_cm)
+cat("\nLogistic Regression Confusion Matrix:\n")
+print(results$glm_cm)
+cat("\nNeural Network Confusion Matrix:\n")
+print(results$nn_cm)
+
+# Display the comparison plot
+print(results$comparison_plot)
+
+
+
+```
+
+
+Testing T-test Data with Models to predict MDR 
+```{r}
+# Run the function with your data
+# Replace "mdr_data" with your dataframe and "mdr" with your target variable
+results <- train_and_compare_models(mdr_data_t, "mdr")
+
+# Display the confusion matrices
+cat("Random Forest Confusion Matrix:\n")
+print(results$rf_cm)
+cat("\nSupport Vector Machine Confusion Matrix:\n")
+print(results$svm_cm)
+cat("\nGradient Boosted Tree Confusion Matrix:\n")
+print(results$gbm_cm)
+cat("\nRecursive Partitioning Confusion Matrix:\n")
+print(results$rp_cm)
+cat("\nLogistic Regression Confusion Matrix:\n")
+print(results$glm_cm)
+cat("\nNeural Network Confusion Matrix:\n")
+print(results$nn_cm)
+
+# Display the comparison plot
+print(results$comparison_plot)
+
+
+
+```
+
+#####
+r_part visualization after ANOVA
+```{r}
+library(rpart)
+library(rpart.plot) # load rpart.plot package
+
+rpartFit <- rpart( mdr~. , data =mdr_data)
+prp(rpartFit,
+  branch.lwd=4, # wide, thick branches
+  branch.col="blue",
+  extra=101)
+
+```
+Rpart - with t_test
+
+```{r}
+rpartFit <- rpart( mdr~. , data =mdr_data_t)
+prp(rpartFit,
+  branch.lwd=4, # wide, thick branches
+  branch.col="blue",
+  extra=101)
+
+```
+
+
+
+EDA
+
+
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Create a summary table of MDR counts by sex
+mdr_sex_summary <- table(ALL$mdr, ALL$sex)
+
+# Convert the summary table into a data frame
+mdr_sex_df <- as.data.frame(mdr_sex_summary)
+colnames(mdr_sex_df) <- c("MDR", "sex", "count")
+
+# Create the bar plot using ggplot2
+ggplot(data = mdr_sex_df, aes(x = sex, y = count, fill = MDR)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "MDR vs. Sex",
+       x = "Sex",
+       y = "Number of Patients",
+       fill = "MDR Status") +
+  theme_minimal()
+```
+
+- Phenotypical distribution 
+- 
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Create a summary table of MDR counts
+mdr_summary <- table(ALL$mdr)
+
+# Convert the summary table into a data frame
+mdr_df <- as.data.frame(mdr_summary)
+colnames(mdr_df) <- c("MDR", "count")
+
+# Create the bar plot using ggplot2
+ggplot(data = mdr_df, aes(x = MDR, y = count, fill = MDR)) +
+  geom_bar(stat = "identity") +
+  labs(title = "MDR Distribution in ALL Dataset",
+       x = "MDR Status",
+       y = "Number of Patients",
+       fill = "MDR Status") +
+  theme_minimal()
+```
+
+
+
+
+Age Distribution
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(Biobase)
+
+# Extract phenotype data from the ExpressionSet
+all_pheno_data <- pData(ALL)
+
+# Define age groups
+age_bins <- c(0, 10, 20, 30, 40, 50, 60, 70, 120)
+
+# Bin the ages into age groups
+all_pheno_data$age_group <- cut(all_pheno_data$age, breaks = age_bins, right = FALSE)
+
+# Create a summary table of MDR counts by age group
+mdr_age_summary <- all_pheno_data %>%
+  group_by(age_group, mdr) %>%
+  summarise(count = n())
+
+# Create the bar plot using ggplot2
+ggplot(data = mdr_age_summary, aes(x = age_group, y = count, fill = mdr)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "MDR vs. Age in ALL Dataset",
+       x = "Age Group",
+       y = "Number of Patients",
+       fill = "MDR Status") +
+  theme_minimal()
+```
+BT
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(Biobase)
+
+# Extract phenotype data from the ExpressionSet
+all_pheno_data <- pData(ALL)
+
+# Create a summary table of MDR counts by blood type
+mdr_bt_summary <- all_pheno_data %>%
+  group_by(BT, mdr) %>%
+  summarise(count = n())
+
+# Create the bar plot using ggplot2
+ggplot(data = mdr_bt_summary, aes(x = BT, y = count, fill = mdr)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "MDR vs. Blood Type (B-cell or T-cell) in ALL Dataset",
+       x = "Blood Type",
+       y = "Number of Patients",
+       fill = "MDR Status") +
+  theme_minimal()
+```
+Remission
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(Biobase)
+
+# Extract phenotype data from the ExpressionSet
+all_pheno_data <- pData(ALL)
+
+# Create a summary table of MDR counts by remission status
+mdr_remission_summary <- all_pheno_data %>%
+  group_by(remission, mdr) %>%
+  summarise(count = n())
+
+# Create the bar plot using ggplot2
+ggplot(data = mdr_remission_summary, aes(x = remission, y = count, fill = mdr)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "MDR vs. Remission Status in ALL Dataset",
+       x = "Remission Status",
+       y = "Number of Patients",
+       fill = "MDR Status") +
+  theme_minimal()
+```
+
